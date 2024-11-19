@@ -17,6 +17,9 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+#这段代码实现了一个基于 Vision Transformer（ViT）的深度学习模型。
+#ViT 是一种使用 Transformer 架构进行图像分类的模型，它的关键思想是将图像分成小块（patch），然后像处理文本一样使用 Transformer 处理这些小块。
+
 # https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/vision_transformer.py
 import math
 import warnings
