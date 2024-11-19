@@ -16,7 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+#这段代码定义了一个深度学习模型类 CLIPVisionTower，用于从图像中提取特征。它主要基于 CLIP 和类似模型（如 SIGLIP 和 SAM）的视觉处理能力，同时支持特征提取的自定义方式。
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import torch
