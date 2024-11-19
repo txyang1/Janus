@@ -16,7 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+#这段代码定义了一个 VLMImageProcessor 类，用于深度学习视觉模型的图像预处理。它支持图像的大小调整、归一化、标准化等操作，并且专为多模态学习任务优化。
 from typing import List, Tuple, Union
 
 import numpy as np
