@@ -16,7 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+#这段代码定义了一个名为 VLChatProcessor 的类，专门用于对多模态输入（文本和图像）进行预处理，以便用于视觉-语言模型（如基于 LLaMA 的模型）。
 from dataclasses import dataclass
 from typing import Dict, List
 
