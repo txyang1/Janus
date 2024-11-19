@@ -16,7 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+#这段代码定义了一个包含**编码器（Encoder）和解码器（Decoder）**的神经网络架构，主要用于图像处理任务。网络由多个模块组成，包括残差块（ResNet Block）和注意力块（AttnBlock）。
 
 from dataclasses import dataclass, field
 from typing import List
