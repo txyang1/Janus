@@ -16,7 +16,8 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
+#这段代码定义了一个 多模态因果语言模型 (MultiModalityCausalLM)，允许将视觉和语言信息集成到单一模型中。
+#它使用了 HuggingFace Transformers 框架并通过扩展其 PreTrainedModel 和 AutoConfig 提供了多模态支持
 import torch
 from attrdict import AttrDict
 from einops import rearrange
