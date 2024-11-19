@@ -20,7 +20,7 @@
 """
 From https://github.com/lm-sys/FastChat/blob/main/fastchat/conversation.py
 """
-
+#以上代码定义了一个用于生成和管理对话模板的 Python 类和方法集。这段代码的核心目的是处理对话数据，并根据特定的分隔符风格（SeparatorStyle）生成符合不同模型要求的提示（prompt）。
 import dataclasses
 from enum import IntEnum, auto
 from typing import Dict, List
