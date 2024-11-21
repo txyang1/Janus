@@ -17,42 +17,42 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #这段代码定义了一个名为 VLChatProcessor 的类，专门用于对多模态输入（文本和图像）进行预处理，以便用于视觉-语言模型（如基于 LLaMA 的模型）。
-from dataclasses import dataclass
+from dataclasses import dataclass #用于定义数据类，便于存储结构化数据。
 from typing import Dict, List
 
 import torch
 from PIL.Image import Image
-from transformers import LlamaTokenizerFast
-from transformers.processing_utils import ProcessorMixin
+from transformers import LlamaTokenizerFast #Hugging Face提供的快速分词器。
+from transformers.processing_utils import ProcessorMixin #Hugging Face的工具，用于自定义处理器
 
-from janus.models.image_processing_vlm import VLMImageProcessor
-from janus.utils.conversation import get_conv_template
+from janus.models.image_processing_vlm import VLMImageProcessor #自定义的视觉语言模型（VLM）图像处理模块。
+from janus.utils.conversation import get_conv_template #获取对话模板的工具函数。
 
-
+#用于封装输出的类。
 class DictOutput(object):
     def keys(self):
         return self.__dict__.keys()
 
-    def __getitem__(self, item):
+    def __getitem__(self, item):#支持通过键访问属性值（dict[key]）
         return self.__dict__[item]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value):#支持通过键设置属性值（dict[key] = value）
         self.__dict__[key] = value
 
 
-@dataclass
-class VLChatProcessorOutput(DictOutput):
-    sft_format: str
-    input_ids: torch.Tensor
-    pixel_values: torch.Tensor
-    num_image_tokens: torch.IntTensor
+@dataclass #数据类 
+class VLChatProcessorOutput(DictOutput):#表示单个数据实例的处理结果。
+    sft_format: str #用于生成对话的格式
+    input_ids: torch.Tensor #文本输入的张量。
+    pixel_values: torch.Tensor #图像的像素张量。
+    num_image_tokens: torch.IntTensor #图像对应的标记数量
 
     def __len__(self):
         return len(self.input_ids)
 
 
 @dataclass
-class BatchedVLChatProcessorOutput(DictOutput):
+class BatchedVLChatProcessorOutput(DictOutput):#表示批量数据的处理结果
     sft_format: List[str]
     input_ids: torch.Tensor
     pixel_values: torch.Tensor
@@ -68,10 +68,10 @@ class BatchedVLChatProcessorOutput(DictOutput):
         self.pixel_values = self.pixel_values.to(device=device, dtype=dtype)
         return self
 
-
-class VLChatProcessor(ProcessorMixin):
-    image_processor_class = "AutoImageProcessor"
-    tokenizer_class = ("LlamaTokenizer", "LlamaTokenizerFast")
+#主处理器类
+class VLChatProcessor(ProcessorMixin): #静态属性：
+    image_processor_class = "AutoImageProcessor" #指定默认图像处理类
+    tokenizer_class = ("LlamaTokenizer", "LlamaTokenizerFast") #支持的分词器类型
 
     attributes = ["image_processor", "tokenizer"]
 
@@ -79,8 +79,9 @@ class VLChatProcessor(ProcessorMixin):
         "You are a helpful language and vision assistant. "
         "You are able to understand the visual content that the user provides, "
         "and assist the user with a variety of tasks using natural language."
-    )
+    )#默认的系统提示
 
+    #构造方法：初始化主要组件（图像处理器和分词器）和相关配置。如果 image_tag 未在词汇表中，向分词器添加特殊标记
     def __init__(
         self,
         image_processor: VLMImageProcessor,
@@ -127,11 +128,13 @@ class VLChatProcessor(ProcessorMixin):
             **kwargs,
         )
 
-    def new_chat_template(self):
+    #方法功能：对话模板处理：
+    def new_chat_template(self): #生成新的对话模板
         conv = get_conv_template(self.sft_format)
         conv.set_system_message(self.system_prompt)
         return conv
 
+    #将模板应用于多轮对话
     def apply_sft_template_for_multi_turn_prompts(
         self,
         conversations: List[Dict[str, str]],
@@ -174,7 +177,7 @@ class VLChatProcessor(ProcessorMixin):
 
         return sft_prompt
 
-    @property
+    @property #标记属性 通过属性访问特定标记和其对应的ID
     def image_token(self):
         return self.image_tag
 
@@ -209,6 +212,7 @@ class VLChatProcessor(ProcessorMixin):
 
         return pad_id
 
+     #图像标记处理：在输入中插入图像标记（起始标记、图像标记和结束标记）
     def add_image_token(
         self,
         image_indices: List[int],
@@ -254,6 +258,7 @@ class VLChatProcessor(ProcessorMixin):
 
         return input_ids, num_image_tokens
 
+    #数据处理方法：单条处理：接受文本和图像输入，生成处理结果
     def process_one(
         self,
         prompt: str = None,
@@ -316,6 +321,7 @@ class VLChatProcessor(ProcessorMixin):
 
         return prepare
 
+    #调用处理器：高层接口，用于统一处理单条或批量输入
     def __call__(
         self,
         *,
@@ -351,6 +357,7 @@ class VLChatProcessor(ProcessorMixin):
 
         return prepare
 
+    #批量处理 将多个处理结果打包成批量数据，填充成相同长度。
     def batchify(
         self, prepare_list: List[VLChatProcessorOutput]
     ) -> BatchedVLChatProcessorOutput:
