@@ -81,7 +81,7 @@ class VLMImageProcessorConfig(PretrainedConfig):#定义一个配置类，用于�
         ),
         rescale_factor: float = 1.0 / 255.0,
         do_normalize: bool = True,
-        **kwargs,
+        **kwargs,#它用于确保类能够扩展和继承父类的所有参数，而不丢失功能。
     ):
         #将参数保存为类实例的属性。
         self.image_size = image_size
