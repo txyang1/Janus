@@ -25,6 +25,7 @@ import math
 import warnings
 from dataclasses import dataclass
 from functools import partial
+#提供类型注解支持，例如 Union、Tuple 等
 from typing import (
     Callable,
     Dict,
@@ -42,6 +43,7 @@ from typing import (
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+#来自 timm 模型库的层组件，支持高效的 Transformer 模型。例如 AttentionPoolLatent、DropPath、LayerType 等。
 from timm.layers import (
     AttentionPoolLatent,
     DropPath,
@@ -51,12 +53,14 @@ from timm.layers import (
     PatchEmbed,
     resample_abs_pos_embed,
 )
+#timm 中的模型操作工具，如检查点序列化和模块应用。
 from timm.models._manipulate import checkpoint_seq, named_apply
 
-
-def _no_grad_trunc_normal_(tensor, mean, std, a, b):
+#实现截断正态分布初始化函数
+def _no_grad_trunc_normal_(tensor, mean, std, a, b):#生成截断正态分布数值填充张量
     # Cut & paste from PyTorch official master until it's in a few official releases - RW
     # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
+    #计算标准正态分布的累积分布函数（CDF）
     def norm_cdf(x):
         # Computes standard normal cumulative distribution function
         return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
@@ -91,7 +95,7 @@ def _no_grad_trunc_normal_(tensor, mean, std, a, b):
         tensor.clamp_(min=a, max=b)
         return tensor
 
-
+#将张量转换为 float32 以确保高精度计算。初始化后再转换回原始数据类型。
 def trunc_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
     # type: (torch.Tensor, float, float, float, float) -> torch.Tensor
     r"""The original timm.models.layers.weight_init.trunc_normal_ can not handle bfloat16 yet, here we first
@@ -119,13 +123,20 @@ def trunc_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
         tensor_dtype = tensor_fp32.to(dtype=dtype)
         tensor.copy_(tensor_dtype)
 
-
+# 定义权重初始化 初始化绝对位置嵌入权重
+"""初始化位置嵌入和潜在变量权重。
+位置嵌入的标准差根据维度计算：1/sqrt(维度)。
+潜在变量同样使用 1/sqrt(维度) 作为标准差。"""
 def init_weights(self):
     if self.pos_embed is not None:
         trunc_normal_(self.pos_embed, std=self.pos_embed.shape[1] ** -0.5)
     trunc_normal_(self.latent, std=self.latent_dim**-0.5)
 
-
+#通用的初始化方法
+"""用于初始化 ViT（Vision Transformer）权重。
+线性层权重用截断正态分布初始化，偏置用零初始化。
+如果模块包含 init_weights 方法，则调用其自定义初始化逻辑。
+"""
 def init_weights_vit_timm(module: nn.Module, name: str = "") -> None:
     """ViT weight initialization, original timm impl (for reproducibility)"""
     if isinstance(module, nn.Linear):
@@ -135,22 +146,26 @@ def init_weights_vit_timm(module: nn.Module, name: str = "") -> None:
     elif hasattr(module, "init_weights"):
         module.init_weights()
 
-
+#实现 Attention 模块
 class Attention(nn.Module):
     fused_attn: Final[bool]
 
     def __init__(
         self,
         dim: int,
-        num_heads: int = 8,
-        qkv_bias: bool = False,
-        qk_norm: bool = False,
-        attn_drop: float = 0.0,
+        num_heads: int = 8,#多头注意力机制的头数。
+        qkv_bias: bool = False,#是否在生成 Q、K、V 时添加偏置。
+        qk_norm: bool = False,#是否对 Q、K 应用归一化
+        attn_drop: float = 0.0,#注意力权重和输出的丢弃率。
         proj_drop: float = 0.0,
-        norm_layer: nn.Module = nn.LayerNorm,
+        norm_layer: nn.Module = nn.LayerNorm,#归一化层类型。
     ) -> None:
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
+        #组件
+        """self.qkv：生成查询（Q）、键（K）和值（V）。
+            q_norm 和 k_norm：可选的归一化模块。
+            proj 和 proj_drop：对输出进行线性投影和随机丢弃。"""
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim**-0.5
@@ -165,6 +180,8 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop) if proj_drop > 0.0 else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """生成 Q、K、V 张量并拆分。
+将每个头的特征维度独立处理。"""
         B, N, C = x.shape
         qkv = (
             self.qkv(x)
@@ -174,6 +191,11 @@ class Attention(nn.Module):
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
 
+        """ 如果支持 PyTorch 的 scaled_dot_product_attention：
+            使用内置函数高效计算注意力。
+            否则手动计算：
+            按缩放点积公式计算注意力分数并归一化。
+            用注意力分数加权值张量。"""
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
                 q,
@@ -187,13 +209,14 @@ class Attention(nn.Module):
             attn = attn.softmax(dim=-1)
             attn = self.attn_drop(attn)
             x = attn @ v
-
+        """恢复原始张量形状。
+        对输出进行线性投影和随机丢弃，最后返回"""
         x = x.transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
 
-
+#定义一个继承自nn.Module的自定义类，用于对输入进行可学习的缩放操作。
 class LayerScale(nn.Module):
     def __init__(
         self,
@@ -201,20 +224,22 @@ class LayerScale(nn.Module):
         init_values: float = 1e-5,
         inplace: bool = False,
     ) -> None:
-        super().__init__()
-        self.inplace = inplace
+        super().__init__() #调用父类nn.Module的初始化方法
+        self.inplace = inplace #保存inplace参数，用于决定后续操作是否就地执行。
+        ## 创建一个可学习参数gamma，初始值为init_values乘以一个全1的向量，维度为dim。
         self.gamma = nn.Parameter(init_values * torch.ones(dim))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        #如果inplace为True，使用mul_方法就地缩放输入,否则返回缩放后的新张量。
         return x.mul_(self.gamma) if self.inplace else x * self.gamma
 
-
+#定义一个Transformer块类，包含注意力机制和MLP
 class Block(nn.Module):
     def __init__(
         self,
         dim: int,
         num_heads: int,
-        mlp_ratio: float = 4.0,
+        mlp_ratio: float = 4.0,#MLP隐藏层维度与输入维度的比例。
         qkv_bias: bool = False,
         qk_norm: bool = False,
         proj_drop: float = 0.0,
@@ -226,7 +251,8 @@ class Block(nn.Module):
         mlp_layer: nn.Module = Mlp,
     ) -> None:
         super().__init__()
-        self.norm1 = norm_layer(dim)
+        self.norm1 = norm_layer(dim)#第一层归一化操作
+        #定义注意力机制层
         self.attn = Attention(
             dim,
             num_heads=num_heads,
@@ -236,11 +262,13 @@ class Block(nn.Module):
             proj_drop=proj_drop,
             norm_layer=norm_layer,
         )
+        #如果提供了init_values，添加LayerScale层；否则使用Identity（不做任何操作）
         self.ls1 = (
             LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         )
+        #随机路径丢弃，用于正则化
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-
+        #第二层归一化操作
         self.norm2 = norm_layer(dim)
         self.mlp = mlp_layer(
             in_features=dim,
@@ -253,12 +281,16 @@ class Block(nn.Module):
         )
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
+    """将输入通过norm1归一化，再经过注意力层。
+通过ls1缩放、drop_path1随机丢弃后加回原输入。
+对新的张量进行norm2归一化、MLP操作。
+再经过ls2缩放、drop_path2随机丢弃后加回。"""
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
         x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
         return x
 
-
+#定义一个视觉Transformer模型。
 class VisionTransformer(nn.Module):
     """Vision Transformer
 
@@ -359,6 +391,7 @@ class VisionTransformer(nn.Module):
         if dynamic_img_size:
             # flatten deferred until after pos embed
             embed_args.update(dict(strict_img_size=False, output_fmt="NHWC"))
+        #将输入图像划分为patch，并映射到嵌入空间。
         self.patch_embed = embed_layer(
             img_size=img_size,
             patch_size=patch_size,
@@ -369,7 +402,7 @@ class VisionTransformer(nn.Module):
             **embed_args,
         )
         num_patches = self.patch_embed.num_patches
-
+        #分类token，用于最后的分类任务
         self.cls_token = (
             nn.Parameter(torch.zeros(1, 1, embed_dim)) if class_token else None
         )
@@ -379,6 +412,7 @@ class VisionTransformer(nn.Module):
         embed_len = (
             num_patches if no_embed_class else num_patches + self.num_prefix_tokens
         )
+        #位置嵌入，用于保持输入序列的位置信息
         self.pos_embed = nn.Parameter(torch.randn(1, embed_len, embed_dim) * 0.02)
         self.pos_drop = nn.Dropout(p=pos_drop_rate)
         if patch_drop_rate > 0:
@@ -393,6 +427,7 @@ class VisionTransformer(nn.Module):
         dpr = [
             x.item() for x in torch.linspace(0, drop_path_rate, depth)
         ]  # stochastic depth decay rule
+        #使用Block类堆叠多个Transformer块
         self.blocks = nn.Sequential(
             *[
                 block_fn(
@@ -412,9 +447,12 @@ class VisionTransformer(nn.Module):
                 for i in range(depth)
             ]
         )
+        #最后一层归一化操作
         self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
 
         # Classifier Head
+        """条件检查是否采用 Attention Pooling（注意力池化）：
+如果 global_pool 参数为 "map"，则启用 AttentionPoolLatent 模块"""
         if global_pool == "map":
             AttentionPoolLatent.init_weights = init_weights
             self.attn_pool = AttentionPoolLatent(
@@ -425,15 +463,25 @@ class VisionTransformer(nn.Module):
             )
         else:
             self.attn_pool = None
+        #设置分类前的归一化层：如果 use_fc_norm 为 True，则在分类头前应用归一化层，否则直接使用 nn.Identity（不进行操作）
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
+        """分类头的 Dropout 层：创建一个 Dropout 层，用于减少过拟合。
+            定义分类层：如果 num_classes 大于 0，则创建一个全连接层 (nn.Linear) 输出类别数；
+            否则使用 nn.Identity，不进行分类。"""
         self.head_drop = nn.Dropout(drop_rate)
         self.head = (
             nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         )
 
+        #权重初始化 如果 weight_init 不为 "skip"，调用 self.init_weights 方法初始化模型权重。
         if weight_init != "skip":
             self.init_weights(weight_init)
 
+    #初始化权重方法
+    """检查权重初始化模式：确保权重初始化模式为允许的选项之一。
+        初始化位置嵌入：使用截断正态分布初始化 pos_embed，标准差为 0.02。
+        初始化分类令牌：如果存在 cls_token，用正态分布（标准差为 1e-6）进行初始化。
+        应用自定义权重初始化方法：对模块的权重执行 init_weights_vit_timm 初始化。"""
     def init_weights(self, mode: Literal["jax", "jax_nlhb", "moco", ""] = "") -> None:
         assert mode in ("jax", "jax_nlhb", "moco", "")
         # head_bias = -math.log(self.num_classes) if "nlhb" in mode else 0.0
@@ -442,10 +490,15 @@ class VisionTransformer(nn.Module):
             nn.init.normal_(self.cls_token, std=1e-6)
         named_apply(init_weights_vit_timm, self)
 
+    #不需要权重衰减的参数
+    """指定不需要权重衰减的参数：返回位置嵌入（pos_embed）、分类令牌（cls_token）和分布令牌（dist_token）。"""
     @torch.jit.ignore
     def no_weight_decay(self) -> Set:
         return {"pos_embed", "cls_token", "dist_token"}
 
+    #配置分组匹配器
+    """定义分组规则：
+为模型的分组训练定义正则表达式规则，分别匹配 stem（嵌入层和分类令牌）、blocks（Transformer 块）和归一化层。"""
     @torch.jit.ignore
     def group_matcher(self, coarse: bool = False) -> Dict:
         return dict(
@@ -453,14 +506,17 @@ class VisionTransformer(nn.Module):
             blocks=[(r"^blocks\.(\d+)", None), (r"^norm", (99999,))],
         )
 
+    #检查梯度计算 启用或禁用梯度检查点：设置是否启用 grad_checkpointing，以节省内存。
     @torch.jit.ignore
     def set_grad_checkpointing(self, enable: bool = True) -> None:
         self.grad_checkpointing = enable
 
+    #获取分类器 返回模型的分类头
     @torch.jit.ignore
     def get_classifier(self) -> nn.Module:
         return self.head
 
+    #重置分类器 调整分类器参数：重置分类头的类别数和全局池化方式（如果指定）
     def reset_classifier(self, num_classes: int, global_pool=None) -> None:
         self.num_classes = num_classes
         if global_pool is not None:
@@ -476,6 +532,10 @@ class VisionTransformer(nn.Module):
             nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         )
 
+    #位置嵌入逻辑
+    """动态调整位置嵌入：如果启用动态图片大小，根据输入调整位置嵌入。
+        拼接令牌：将分类令牌和回归令牌与输入特征拼接。
+        应用 Dropout：对拼接后的结果应用 Dropout。"""
     def _pos_embed(self, x: torch.Tensor) -> torch.Tensor:
         if self.dynamic_img_size:
             B, H, W, C = x.shape
@@ -531,6 +591,7 @@ class VisionTransformer(nn.Module):
 
         return outputs
 
+    #中间层提取 获取中间层输出：提取指定 Transformer 块的中间层特征，支持 reshaping 和添加归一化。
     def get_intermediate_layers(
         self,
         x: torch.Tensor,
@@ -562,6 +623,9 @@ class VisionTransformer(nn.Module):
             return tuple(zip(outputs, prefix_tokens))
         return tuple(outputs)
 
+    #特征提取和前向传播
+    """提取特征：从输入图片中提取特征，经过 Patch Embedding、位置嵌入、归一化和所有 Transformer 块。
+        前向传播分类：最终将特征送入分类器头得到输出"""
     def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         x = self.patch_embed(x)
         x = self._pos_embed(x)
@@ -575,16 +639,25 @@ class VisionTransformer(nn.Module):
         return x
 
     def forward_head(self, x: torch.Tensor, pre_logits: bool = False) -> torch.Tensor:
-        if self.attn_pool is not None:
+        if self.attn_pool is not None:#如果 Attention Pooling (self.attn_pool) 被启用，则对输入 x 应用注意力池化
             x = self.attn_pool(x)
+        #如果全局池化方式为 "avg"，则对所有 Token 的特征取均值，忽略前缀 Token。
         elif self.global_pool == "avg":
             x = x[:, self.num_prefix_tokens :].mean(dim=1)
-        elif self.global_pool:
+        elif self.global_pool:#否则，使用分类 Token（位于序列的第一个位置 x[:, 0]）作为最终特征
             x = x[:, 0]  # class token
+
+        #应用归一化、Dropout 和分类头：
+        """对特征 x 应用归一化（self.fc_norm）。通过 Dropout 减少过拟合。
+        如果 pre_logits=True，直接返回归一化后的特征；否则通过分类头（self.head）输出类别。"""
         x = self.fc_norm(x)
         x = self.head_drop(x)
         return x if pre_logits else self.head(x)
 
+    """特征提取： 调用 self.forward_features 方法，从输入中提取特征。
+分类： 如果未忽略分类头（ignore_head=False），通过分类头得到最终输出。
+返回结果： 返回分类或提取的特征。
+"""
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.forward_features(x)
         if not self.ignore_head:
@@ -639,7 +712,7 @@ SigLIP_MODEL_CONFIG = {
     },
 }
 
-
+#这是一个用于创建 SigLIP 模型的工厂函数。
 def create_siglip_vit(
     model_name: str = "siglip_so400m_patch14_384",
     image_size: int = 384,
@@ -647,17 +720,22 @@ def create_siglip_vit(
     ckpt_path: str = "",
     **kwargs,
 ):
+    #检查模型名称有效性：
     assert (
         model_name in SigLIP_MODEL_CONFIG.keys()
     ), f"model name should be in {SigLIP_MODEL_CONFIG.keys()}"
 
+    #加载模型配置：
     vision_cfg = SigLIPVisionCfg(**SigLIP_MODEL_CONFIG[model_name])
 
+    """确定模型层数：如果 select_layer <= 0，选择从最后一层开始向前的层数。
+否则，选择 select_layer 层。"""
     if select_layer <= 0:
         layers = min(vision_cfg.layers, vision_cfg.layers + select_layer + 1)
     else:
         layers = min(vision_cfg.layers, select_layer)
 
+    #实例化 VisionTransformer
     model = VisionTransformer(
         img_size=image_size,
         patch_size=vision_cfg.patch_size,
@@ -672,6 +750,7 @@ def create_siglip_vit(
         num_classes=0,
     )
 
+    #加载预训练权重（如果指定）
     if ckpt_path:
         state_dict = torch.load(ckpt_path, map_location="cpu")
 
