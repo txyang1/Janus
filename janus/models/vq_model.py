@@ -87,9 +87,9 @@ class Encoder(nn.Module):
             conv_block.res = res_block#将残差块和注意力块添加到 conv_block 中
             conv_block.attn = attn_block
             # downsample
-            if i_level != self.num_resolutions - 1:
+            if i_level != self.num_resolutions - 1: #如果当前层不是最后一层，则进行下采样，将特征图大小减小
                 conv_block.downsample = Downsample(block_in, resamp_with_conv)
-            self.conv_blocks.append(conv_block)
+            self.conv_blocks.append(conv_block)#将当前的卷积块（conv_block）添加到 self.conv_blocks 列表中。
 
         # middle
         self.mid = nn.ModuleList()
