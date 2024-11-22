@@ -27,7 +27,13 @@ import torch.nn.functional as F
 
 from functools import partial
 
-
+"""这个类定义了一些模型的超参数，例如编码器和解码器的通道倍乘因子（encoder_ch_mult 和 decoder_ch_mult）、码本大小（codebook_size）、正则化参数（commit_loss_beta）等。
+这些参数控制了模型的架构和行为。
+关键点：
+codebook_size: 用于量化嵌入的码本大小。
+codebook_embed_dim: 码本中每个向量的维度。
+encoder_ch_mult 和 decoder_ch_mult: 控制通道数在不同分辨率层级上的增长。
+z_channels: 表示潜在特征（latent features）的通道数"""
 @dataclass
 class ModelArgs:
     codebook_size: int = 16384
@@ -46,14 +52,14 @@ class ModelArgs:
 class Encoder(nn.Module):
     def __init__(
         self,
-        in_channels=3,
-        ch=128,
-        ch_mult=(1, 1, 2, 2, 4),
-        num_res_blocks=2,
+        in_channels=3,#输入图像通道数
+        ch=128,#基础通道数
+        ch_mult=(1, 1, 2, 2, 4),#控制每层通道数
+        num_res_blocks=2,#每个分辨率层级包含的残差块数量
         norm_type="group",
         dropout=0.0,
         resamp_with_conv=True,
-        z_channels=256,
+        z_channels=256,输出潜在特征通道数
     ):
         super().__init__()
         self.num_resolutions = len(ch_mult)
@@ -213,23 +219,27 @@ class Decoder(nn.Module):
         h = self.conv_out(h)
         return h
 
-
+#实现向量量化（Vector Quantization），用于将连续潜在空间的特征映射到离散码本（codebook）中的索引。
 class VectorQuantizer(nn.Module):
     def __init__(self, n_e, e_dim, beta, entropy_loss_ratio, l2_norm, show_usage):
         super().__init__()
-        self.n_e = n_e
-        self.e_dim = e_dim
-        self.beta = beta
+        self.n_e = n_e#码本大小（即离散向量的数量）
+        self.e_dim = e_dim#每个码本向量的维度
+        self.beta = beta#权重
         self.entropy_loss_ratio = entropy_loss_ratio
         self.l2_norm = l2_norm
-        self.show_usage = show_usage
+        self.show_usage = show_usage#是否统计码本的使用情况
 
+        """使用 nn.Embedding 创建一个大小为 (n_e, e_dim) 的嵌入矩阵，表示码本。
+        使用随机均匀分布初始化码本向量。
+        如果启用了 L2 归一化，则对码本进行归一化处理"""
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
         if self.l2_norm:
             self.embedding.weight.data = F.normalize(
                 self.embedding.weight.data, p=2, dim=-1
             )
+        #如果启用了 show_usage，用于记录码本中每个向量的使用次数。
         if self.show_usage:
             self.register_buffer("codebook_used", nn.Parameter(torch.zeros(65536)))
 
@@ -265,11 +275,11 @@ class VectorQuantizer(nn.Module):
 
         # compute loss for embedding
         if self.training:
-            vq_loss = torch.mean((z_q - z.detach()) ** 2)
+            vq_loss = torch.mean((z_q - z.detach()) ** 2)#量化损失
             commit_loss = self.beta * torch.mean((z_q.detach() - z) ** 2)
             entropy_loss = self.entropy_loss_ratio * compute_entropy_loss(-d)
 
-        # preserve gradients
+        # preserve gradients 梯度反向传播修正
         z_q = z + (z_q - z).detach()
 
         # reshape back to match original input shape
@@ -298,7 +308,8 @@ class VectorQuantizer(nn.Module):
                 z_q = z_q.view(shape)
         return z_q
 
-
+"""实现了标准的残差块结构，用于增强模型的特征提取能力。
+在输入和输出之间添加了残差连接（Residual Connection），缓解梯度消失问题"""
 class ResnetBlock(nn.Module):
     def __init__(
         self,
@@ -324,6 +335,7 @@ class ResnetBlock(nn.Module):
             out_channels, out_channels, kernel_size=3, stride=1, padding=1
         )
 
+        #残差连接：如果输入和输出通道不同，通过卷积调整输入的形状。
         if self.in_channels != self.out_channels:
             if self.use_conv_shortcut:
                 self.conv_shortcut = nn.Conv2d(
@@ -334,6 +346,7 @@ class ResnetBlock(nn.Module):
                     in_channels, out_channels, kernel_size=1, stride=1, padding=0
                 )
 
+    #特征经过两个卷积和激活层处理，最后与输入 x 相加形成残差输出。
     def forward(self, x):
         h = x
         h = self.norm1(h)
@@ -351,7 +364,7 @@ class ResnetBlock(nn.Module):
                 x = self.nin_shortcut(x)
         return x + h
 
-
+#实现了基于点的自注意力机制，捕获全局的特征依赖关系。
 class AttnBlock(nn.Module):
     def __init__(self, in_channels, norm_type="group"):
         super().__init__()
@@ -361,7 +374,7 @@ class AttnBlock(nn.Module):
         self.v = nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.proj_out = nn.Conv2d(
             in_channels, in_channels, kernel_size=1, stride=1, padding=0
-        )
+        )#使用 proj_out 将注意力结果映射回原始特征空间。
 
     def forward(self, x):
         h_ = x
@@ -389,12 +402,13 @@ class AttnBlock(nn.Module):
 
         return x + h_
 
-
+#使用 Swish 激活函数
 def nonlinearity(x):
     # swish
     return x * torch.sigmoid(x)
 
 
+#提供两种规范化方式（Group Norm 和 Batch Norm），用于稳定训练。
 def Normalize(in_channels, norm_type="group"):
     assert norm_type in ["group", "batch"]
     if norm_type == "group":
@@ -404,17 +418,20 @@ def Normalize(in_channels, norm_type="group"):
     elif norm_type == "batch":
         return nn.SyncBatchNorm(in_channels)
 
-
+"""对输入特征图进行上采样操作，将其分辨率提高一倍。
+可选地在上采样后添加卷积层，进一步处理特征"""
 class Upsample(nn.Module):
     def __init__(self, in_channels, with_conv):
         super().__init__()
-        self.with_conv = with_conv
-        if self.with_conv:
+        self.with_conv = with_conv#布尔值，表示是否在上采样后添加卷积层
+        if self.with_conv:#如果真，定义一个卷积层
             self.conv = nn.Conv2d(
                 in_channels, in_channels, kernel_size=3, stride=1, padding=1
             )
 
     def forward(self, x):
+        """上采样：使用最近邻插值（mode="nearest"）将特征图分辨率放大 2 倍。
+        如果输入张量的类型不是 float32，会在插值前将其转换为 float32，插值后再转换回原类型。"""
         if x.dtype != torch.float32:
             x = F.interpolate(x.to(torch.float), scale_factor=2.0, mode="nearest").to(
                 torch.bfloat16
@@ -427,6 +444,8 @@ class Upsample(nn.Module):
         return x
 
 
+"""对输入特征图进行下采样操作，将其分辨率降低一半。
+可选地在下采样时使用卷积层，提取低分辨率特征。"""
 class Downsample(nn.Module):
     def __init__(self, in_channels, with_conv):
         super().__init__()
@@ -438,20 +457,24 @@ class Downsample(nn.Module):
             )
 
     def forward(self, x):
-        if self.with_conv:
+        if self.with_conv:#如果使用卷积下采样：由于 PyTorch 不支持非对称填充，需要手动对输入张量填充：
             pad = (0, 1, 0, 1)
             x = F.pad(x, pad, mode="constant", value=0)
             x = self.conv(x)
-        else:
+        else:#如果不使用卷积：使用平均池化实现下采样
             x = F.avg_pool2d(x, kernel_size=2, stride=2)
         return x
 
-
+#计算熵损失，用于鼓励码本向量的均匀使用。熵损失通过计算样本熵和平均熵的差值实现。
 def compute_entropy_loss(affinity, loss_type="softmax", temperature=0.01):
+    """将输入的相似性矩阵展平：affinity 通常是特征与码本的相似性分数。
+        可通过温度参数 temperature 调整分数分布。"""
     flat_affinity = affinity.reshape(-1, affinity.shape[-1])
     flat_affinity /= temperature
+    #计算概率分布
     probs = F.softmax(flat_affinity, dim=-1)
     log_probs = F.log_softmax(flat_affinity + 1e-5, dim=-1)
+    
     if loss_type == "softmax":
         target_probs = probs
     else:
@@ -459,19 +482,23 @@ def compute_entropy_loss(affinity, loss_type="softmax", temperature=0.01):
     avg_probs = torch.mean(target_probs, dim=0)
     avg_entropy = -torch.sum(avg_probs * torch.log(avg_probs + 1e-5))
     sample_entropy = -torch.mean(torch.sum(target_probs * log_probs, dim=-1))
+    #返回熵损失
     loss = sample_entropy - avg_entropy
     return loss
 
-
+#实现了一个完整的向量量化模型，包括编码器、解码器和向量量化模块。
 class VQModel(nn.Module):
+    #使用 config 配置模型的超参数，包括编码器/解码器的通道倍增系数、码本大小、损失权重等。
     def __init__(self, config: ModelArgs):
         super().__init__()
         self.config = config
+        #编码器将输入映射到潜在空间。
         self.encoder = Encoder(
             ch_mult=config.encoder_ch_mult,
             z_channels=config.z_channels,
             dropout=config.dropout_p,
         )
+        #解码器将潜在空间的特征恢复为原始分辨率
         self.decoder = Decoder(
             ch_mult=config.decoder_ch_mult,
             z_channels=config.z_channels,
@@ -486,11 +513,13 @@ class VQModel(nn.Module):
             config.codebook_l2_norm,
             config.codebook_show_usage,
         )
+        #用于调整特征的通道数
         self.quant_conv = nn.Conv2d(config.z_channels, config.codebook_embed_dim, 1)
         self.post_quant_conv = nn.Conv2d(
             config.codebook_embed_dim, config.z_channels, 1
         )
 
+    #提取输入的潜在特征，并进行量化。
     def encode(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
@@ -516,6 +545,9 @@ class VQModel(nn.Module):
 #################################################################################
 #                              VQ Model Configs                                 #
 #################################################################################
+"""模型配置函数
+VQ_16 函数
+预设了编码器和解码器的通道倍增系数，快速创建一个 VQ 模型："""
 def VQ_16(**kwargs):
     return VQModel(
         ModelArgs(
