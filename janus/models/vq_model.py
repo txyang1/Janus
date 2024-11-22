@@ -27,9 +27,7 @@ import torch.nn.functional as F
 
 from functools import partial
 
-"""这个类定义了一些模型的超参数，例如编码器和解码器的通道倍乘因子（encoder_ch_mult 和 decoder_ch_mult）、码本大小（codebook_size）、正则化参数（commit_loss_beta）等。
-这些参数控制了模型的架构和行为。
-关键点：
+"""这个类定义了一些模型的超参数
 codebook_size: 用于量化嵌入的码本大小。
 codebook_embed_dim: 码本中每个向量的维度。
 encoder_ch_mult 和 decoder_ch_mult: 控制通道数在不同分辨率层级上的增长。
@@ -38,18 +36,19 @@ z_channels: 表示潜在特征（latent features）的通道数"""
 class ModelArgs:
     codebook_size: int = 16384
     codebook_embed_dim: int = 8
-    codebook_l2_norm: bool = True
-    codebook_show_usage: bool = True
-    commit_loss_beta: float = 0.25
-    entropy_loss_ratio: float = 0.0
+    codebook_l2_norm: bool = True #l2_归一化
+    codebook_show_usage: bool = True #显示代码本的使用情况
+    commit_loss_beta: float = 0.25 #用来控制提交损失（commitment loss）的强度
+    entropy_loss_ratio: float = 0.0 #熵损失通常用于鼓励模型的输出具有高熵（即更加分散），但在这个设置中它被设置为 0.0，表示不使用熵损失
 
-    encoder_ch_mult: List[int] = field(default_factory=lambda: [1, 1, 2, 2, 4])
+    encoder_ch_mult: List[int] = field(default_factory=lambda: [1, 1, 2, 2, 4])#用于表示编码器每一层的通道数倍率，表示随着网络的深入，通道数会逐渐增加。
     decoder_ch_mult: List[int] = field(default_factory=lambda: [1, 1, 2, 2, 4])
-    z_channels: int = 256
-    dropout_p: float = 0.0
+    z_channels: int = 256 #表示模型中 z 向量的通道数。z 向量通常用于表示潜在空间的特征，设置为 256
+    dropout_p: float = 0.0#表示 Dropout 正则化的概率，通常用于防止过拟合。0.0 表示不使用 Dropout
 
 
 class Encoder(nn.Module):
+    #初始化了编码器模型的各个层
     def __init__(
         self,
         in_channels=3,#输入图像通道数
@@ -58,34 +57,34 @@ class Encoder(nn.Module):
         num_res_blocks=2,#每个分辨率层级包含的残差块数量
         norm_type="group",
         dropout=0.0,
-        resamp_with_conv=True,
+        resamp_with_conv=True,#使用卷积进行下采样
         z_channels=256,输出潜在特征通道数
     ):
-        super().__init__()
-        self.num_resolutions = len(ch_mult)
-        self.num_res_blocks = num_res_blocks
-        self.conv_in = nn.Conv2d(in_channels, ch, kernel_size=3, stride=1, padding=1)
+        super().__init__()#调用父类 nn.Module 的初始化函数，初始化父类的所有内容。
+        self.num_resolutions = len(ch_mult)#分辨率层数
+        self.num_res_blocks = num_res_blocks#每个分辨率层级的残差块数
+        self.conv_in = nn.Conv2d(in_channels, ch, kernel_size=3, stride=1, padding=1)#定义输入卷积层
 
         # downsampling
-        in_ch_mult = (1,) + tuple(ch_mult)
-        self.conv_blocks = nn.ModuleList()
-        for i_level in range(self.num_resolutions):
-            conv_block = nn.Module()
+        in_ch_mult = (1,) + tuple(ch_mult)#生成一个新的通道数倍增序列，前面加了一个 1，确保第一个分辨率层的输入通道数是 1, (1,1,1,2,2,4)
+        self.conv_blocks = nn.ModuleList()#用于存储每一层的卷积块
+        for i_level in range(self.num_resolutions):#遍历每一层
+            conv_block = nn.Module()#为每个分辨率级别创建一个空的模块（conv_block），它将在后面被加入包含残差块和注意力块。
             # res & attn
-            res_block = nn.ModuleList()
+            res_block = nn.ModuleList()#用于储存残差块
             attn_block = nn.ModuleList()
-            block_in = ch * in_ch_mult[i_level]
-            block_out = ch * ch_mult[i_level]
-            for _ in range(self.num_res_blocks):
+            block_in = ch * in_ch_mult[i_level] #根据当前层级 i_level 和基础通道数配置ch，计算该层的输入通道数（block_in）和输出通道数（block_out）如i_level=2,128*1=128
+            block_out = ch * ch_mult[i_level] # i_level=2, 128*2=256
+            for _ in range(self.num_res_blocks):#在每个分辨率层级中，添加 num_res_blocks 个残差块（ResnetBlock
                 res_block.append(
                     ResnetBlock(
                         block_in, block_out, dropout=dropout, norm_type=norm_type
                     )
                 )
-                block_in = block_out
-                if i_level == self.num_resolutions - 1:
+                block_in = block_out #更新
+                if i_level == self.num_resolutions - 1:#在最后一个分辨率层级（最小分辨率）后，添加一个注意力块（AttnBlock）
                     attn_block.append(AttnBlock(block_in, norm_type))
-            conv_block.res = res_block
+            conv_block.res = res_block#将残差块和注意力块添加到 conv_block 中
             conv_block.attn = attn_block
             # downsample
             if i_level != self.num_resolutions - 1:
