@@ -18,10 +18,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import torch
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM#加载预训练的因果语言模型
 
 from janus.models import MultiModalityCausalLM, VLChatProcessor
-from janus.utils.io import load_pil_images
+from janus.utils.io import load_pil_images#加载图片并转换为PIL格式
 
 # specify the path to the model
 model_path = "deepseek-ai/Janus-1.3B"
