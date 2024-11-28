@@ -401,7 +401,7 @@ class VLChatProcessor(ProcessorMixin): #该类继承自 ProcessorMixin。这个�
             seq_len = len(prepare)
             n_image = len(prepare.num_image_tokens)
             # left-padding
-            batched_attention_mask[i, -seq_len:] = 1#将当前样本的实际标记位置在 batched_attention_mask 中标记为 1
+            batched_attention_mask[i, -seq_len:] = 1#将当前样本的实际标记位置在 batched_attention_mask 中标记为 1，倒数 seq_len 开始的位置插入，即右侧对齐
             batched_input_ids[i, -seq_len:] = torch.LongTensor(input_ids)#将当前样本的 input_ids 填充到 batched_input_ids 中
             batched_images_seq_mask[i, -seq_len:] = input_ids == self.image_id#标记哪些位置是图像标记
 
