@@ -16,7 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-#这段代码定义了一个深度学习模型类 CLIPVisionTower，用于从图像中提取特征。它主要基于 CLIP 和类似模型（如 SIGLIP 和 SAM）的视觉处理能力，同时支持特征提取的自定义方式。
+#这段代码定义了一个深度学习模型类 CLIPVisionTower，通过不同的视觉模型（如 SIGLIP、SAM 或 CLIP）来提取图像的特征，尤其是图像的局部信息（如图像补丁）
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import torch
@@ -67,7 +67,7 @@ class CLIPVisionTower(nn.Module):
 
         self.image_norm = image_norm
 
-    def build_vision_tower(self, vision_tower_params):
+    def build_vision_tower(self, vision_tower_params):#根据 model_name 来加载不同的预训练视觉模型
         if self.model_name.startswith("siglip"):
             self.select_feature = "same"
             vision_tower = create_siglip_vit(**vision_tower_params)
@@ -85,7 +85,7 @@ class CLIPVisionTower(nn.Module):
 
         return vision_tower, forward_kwargs
 
-    def feature_select(self, image_forward_outs):
+    def feature_select(self, image_forward_outs):#从模型的输出中选择所需的特征
         if isinstance(image_forward_outs, torch.Tensor):
             # the output has been the self.select_layer"s features
             image_features = image_forward_outs
