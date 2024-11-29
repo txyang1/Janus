@@ -32,7 +32,7 @@ from transformers.utils import logging
 logger = logging.get_logger(__name__) #设置日志工具：用于记录和调试图像处理器的运行信息。
 
 
-
+#类型和标准值
 ImageType = Union[np.ndarray, torch.Tensor, Image.Image]
 IMAGENET_MEAN = (0.48145466, 0.4578275, 0.40821073)
 IMAGENET_STD = (0.26862954, 0.26130258, 0.27577711)
@@ -54,7 +54,7 @@ def expand2square(pil_img, background_color):#定义一个函数，将非正方�
         return result
 
 
-class VLMImageProcessorConfig(PretrainedConfig):#定义一个配置类，用于存储图像处理器的参数。
+class VLMImageProcessorConfig(PretrainedConfig):#定义一个配置类，用于存储图像处理的参数。
     model_type = "deepseek_vlm"#定义模型类型标识符。
     #定义图像处理所需的参数字段。
     image_size: int
@@ -130,9 +130,9 @@ class VLMImageProcessor(BaseImageProcessor):#定义自定义图像处理器类�
         if image_mean is None:
             self.background_color = (127, 127, 127)
         else:
-            self.background_color = tuple([int(x * 255) for x in image_mean])
+            self.background_color = tuple([int(x * 255) for x in image_mean])#遍历 image_mean 中的每个通道的均值 x，将其乘以 255，将浮点数扩展到整数范围
 
-    #定义图像调整大小的核心方法
+    #定义图像调整大小的核心方法，将输入图像调整到目标尺寸，并填充为正方形
     def resize(self, pil_img: Image) -> np.ndarray:
         """
 
@@ -158,7 +158,7 @@ class VLMImageProcessor(BaseImageProcessor):#定义自定义图像处理器类�
             print(f"orig size = {pil_img.size}, new size = {size}")
             raise ValueError("Invalid size!")
 
-        #使用双三次插值调整图像大小。
+        #使用双三次插值（Bicubic Interpolation）调整图像大小。
         pil_img = torchvision.transforms.functional.resize(
             pil_img,
             size,
