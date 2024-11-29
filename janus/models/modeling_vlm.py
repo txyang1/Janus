@@ -39,11 +39,11 @@ class vision_head(torch.nn.Module):#用于处理视觉特征，将输入嵌入�
         super().__init__()#初始化一个多层感知机 (MLP)
         self.output_mlp_projector = torch.nn.Linear(
             params.n_embed, params.image_token_embed
-        )#将嵌入维度从 n_embed 转换为 image_token_embed
-        self.vision_activation = torch.nn.GELU()
+        )#全连接层，将嵌入维度从 n_embed 转换为 image_token_embed
+        self.vision_activation = torch.nn.GELU()#激活函数
         self.vision_head = torch.nn.Linear(
             params.image_token_embed, params.image_token_size
-        )#将维度从 image_token_embed 转换为 image_token_size
+        )#另一个全连接层，将维度从 image_token_embed 转换为 image_token_size，生成最终的视觉token表示
 
     def forward(self, x):
         x = self.output_mlp_projector(x)
@@ -52,8 +52,8 @@ class vision_head(torch.nn.Module):#用于处理视觉特征，将输入嵌入�
         return x
 
 #动态类加载器
-def model_name_to_cls(cls_name):#接收一个类名字符串 cls_name，根据字符串内容动态加载对应的类。
-    if "MlpProjector" in cls_name:
+def model_name_to_cls(cls_name):#接收一个类名字符串 cls_name，根据字符串内容动态加载对应的类
+    if "MlpProjector" in cls_name:#如果类名字符串中包含 "MlpProjector"，则返回 MlpProjector 类
         cls = MlpProjector
 
     elif "CLIPVisionTower" in cls_name:
@@ -71,22 +71,22 @@ def model_name_to_cls(cls_name):#接收一个类名字符串 cls_name，根据�
     return cls
 
 #配置类定义
-class VisionConfig(PretrainedConfig):#定义视觉模型的配置，用于初始化视觉相关模块
-    model_type = "vision"
-    cls: str = ""
-    params: AttrDict = {}
+class VisionConfig(PretrainedConfig):#定义视觉模型的配置，用于初始化视觉相关模块，存储和管理初始化视觉相关模块所需的参数，包括模型类型、类名和超参数
+    model_type = "vision"#表示模型类型
+    cls: str = ""#保存视觉模块类名
+    params: AttrDict = {}#保存与视觉模块相关的参数
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, **kwargs):#通过 **kwargs 接收任意数量的关键字参数
+        super().__init__(**kwargs)#调用父类 PretrainedConfig 的构造函数，初始化基础配置
 
-        self.cls = kwargs.get("cls", "")
-        if not isinstance(self.cls, str):
+        self.cls = kwargs.get("cls", "")#从 kwargs 中提取 "cls" 参数，如果没有提供 "cls" 参数，则默认设置为空字符串 ""
+        if not isinstance(self.cls, str):#如果 cls 不是字符串（可能是一个类对象），通过 __name__ 获取其类名并将其转换为字符串。
             self.cls = self.cls.__name__
 
-        self.params = AttrDict(kwargs.get("params", {}))
+        self.params = AttrDict(kwargs.get("params", {}))#将提取的参数封装为 AttrDict 对象，使其支持点操作访问属性。例如，可以通过 self.params.some_key 访问
 
-#重复的配置类结构
-class AlignerConfig(PretrainedConfig):
+
+class AlignerConfig(PretrainedConfig):#对齐模型配置
     model_type = "aligner"
     cls: str = ""
     params: AttrDict = {}
@@ -101,7 +101,7 @@ class AlignerConfig(PretrainedConfig):
         self.params = AttrDict(kwargs.get("params", {}))
 
 
-class GenVisionConfig(PretrainedConfig):
+class GenVisionConfig(PretrainedConfig):#对应生成视觉模型配置
     model_type = "gen_vision"
     cls: str = ""
     params: AttrDict = {}
@@ -116,7 +116,7 @@ class GenVisionConfig(PretrainedConfig):
         self.params = AttrDict(kwargs.get("params", {}))
 
 
-class GenAlignerConfig(PretrainedConfig):
+class GenAlignerConfig(PretrainedConfig):#对应生成对齐模型配置
     model_type = "gen_aligner"
     cls: str = ""
     params: AttrDict = {}
@@ -131,7 +131,7 @@ class GenAlignerConfig(PretrainedConfig):
         self.params = AttrDict(kwargs.get("params", {}))
 
 
-class GenHeadConfig(PretrainedConfig):
+class GenHeadConfig(PretrainedConfig):#对应生成头部模型配置
     model_type = "gen_head"
     cls: str = ""
     params: AttrDict = {}
@@ -145,12 +145,11 @@ class GenHeadConfig(PretrainedConfig):
 
         self.params = AttrDict(kwargs.get("params", {}))
 
-#多模态配置类
+#多模态配置类，用于管理视觉、对齐、生成（vision、aligner）、以及语言处理（如 Llama 模型）的设置
 class MultiModalityConfig(PretrainedConfig):
     model_type = "multi_modality"
     vision_config: VisionConfig
     aligner_config: AlignerConfig
-
     #生成模块配置
     gen_vision_config: GenVisionConfig
     gen_aligner_config: GenAlignerConfig
@@ -160,8 +159,8 @@ class MultiModalityConfig(PretrainedConfig):
 
     def __init__(self, **kwargs):#从字典中提取配置，实例化对应的子配置类。
         super().__init__(**kwargs)
-        vision_config = kwargs.get("vision_config", {})
-        self.vision_config = VisionConfig(**vision_config)
+        vision_config = kwargs.get("vision_config", {})#从传入的参数 kwargs 中获取 vision_config 配置字典。如果没有提供，则默认是一个空字典 {}
+        self.vision_config = VisionConfig(**vision_config)#使用 VisionConfig(**vision_config) 来实例化一个 VisionConfig 对象，赋值给 self.vision_config
 
         aligner_config = kwargs.get("aligner_config", {})
         self.aligner_config = AlignerConfig(**aligner_config)
@@ -183,13 +182,13 @@ class MultiModalityConfig(PretrainedConfig):
 
 #定义预训练模型基类
 class MultiModalityPreTrainedModel(PreTrainedModel):#继承 PreTrainedModel，设定默认配置和基本参数
-    config_class = MultiModalityConfig
+    config_class = MultiModalityConfig#使用 MultiModalityConfig 类来加载和管理模型配置
     base_model_prefix = "multi_modality"
-    _no_split_modules = []
-    _skip_keys_device_placement = "past_key_values"
+    _no_split_modules = []#用于指定哪些模块在模型切分（例如分布式训练时）时不应该被拆分的列表
+    _skip_keys_device_placement = "past_key_values"#指示在某些操作中跳过设备放置（例如，模型的输入或输出张量的设备分配）时的特定键
 
 #多模态因果语言模型
-class MultiModalityCausalLM(MultiModalityPreTrainedModel):
+class MultiModalityCausalLM(MultiModalityPreTrainedModel):#该类整合了语言模型、视觉模型和对齐模块，能够同时处理文本和视觉输入，并生成统一的嵌入。
     def __init__(self, config: MultiModalityConfig):##初始化语言模型：从配置中提取各模块的配置，动态加载对应的模型类
         super().__init__(config)
         #加载视觉模型：根据 vision_config.cls 动态加载视觉模型类并实例化
@@ -201,6 +200,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         aligner_cls = model_name_to_cls(aligner_config.cls)
         self.aligner = aligner_cls(aligner_config.params)
 
+        #加载生成模块
         gen_vision_config = config.gen_vision_config
         gen_vision_cls = model_name_to_cls(gen_vision_config.cls)
         self.gen_vision_model = gen_vision_cls()
@@ -213,10 +213,12 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         gen_head_cls = model_name_to_cls(gen_head_config.cls)
         self.gen_head = gen_head_cls(gen_head_config.params)
 
+        #定义生成模块的嵌入层
         self.gen_embed = torch.nn.Embedding(
             gen_vision_config.params.image_token_size, gen_vision_config.params.n_embed
         )
 
+        #加载语言模型
         language_config = config.language_config
         self.language_model = LlamaForCausalLM(language_config)
     #输入准备，准备输入嵌入，定义方法，将文本和图像特征组合成统一的嵌入。
@@ -243,8 +245,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         """
         
         #处理图像嵌入：通过视觉模型提取特征，然后通过对齐模块生成嵌入。
-        bs, n = pixel_values.shape[0:2]
-        images = rearrange(pixel_values, "b n c h w -> (b n) c h w")
+        bs, n = pixel_values.shape[0:2]#提取前两维 batchsize,n_images
+        images = rearrange(pixel_values, "b n c h w -> (b n) c h w")#将批量维度和图像数量维度合并，以方便后续的图像批量处理
         # [b x n, T2, D]
         images_embeds = self.aligner(self.vision_model(images))
         
@@ -254,22 +256,23 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         # [b, n, T2] -> [b, n x T2]
         images_emb_mask = rearrange(images_emb_mask, "b n t -> b (n t)")
 
-        #文本嵌入处理：使用语言模型的嵌入层处理输入 ID
+        #对文本输入进行预处理
         # [b, T, D]
         input_ids[input_ids < 0] = 0  # ignore the image embeddings
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
 
-        #替换嵌入：根据图像掩码将图像嵌入替换到文本嵌入中
-        # replace with the image embeddings
+        #将图像嵌入替换到文本嵌入中，完成多模态输入的整合
+        # replace with the image embeddings 
         inputs_embeds[images_seq_mask] = images_embeds[images_emb_mask]
 
         return inputs_embeds
 
+    # 图像生成嵌入，根据图像标识 (image_ids)，生成用于生成的图像嵌入
     def prepare_gen_img_embeds(self, image_ids: torch.LongTensor):
         return self.gen_aligner(self.gen_embed(image_ids))
 
 #注册配置和模型：将自定义的配置类和模型类注册到 transformers 框架中，方便后续加载。
-AutoConfig.register("vision", VisionConfig)
+AutoConfig.register("vision", VisionConfig)#将 config_name 和自定义的配置类关联起来。
 AutoConfig.register("aligner", AlignerConfig)
 AutoConfig.register("gen_vision", GenVisionConfig)
 AutoConfig.register("gen_aligner", GenAlignerConfig)
