@@ -190,12 +190,7 @@ class Attention(nn.Module):
         )
         q, k, v = qkv.unbind(0)
         q, k = self.q_norm(q), self.k_norm(k)
-
-        """ 如果支持 PyTorch 的 scaled_dot_product_attention：
-            使用内置函数高效计算注意力。
-            否则手动计算：
-            按缩放点积公式计算注意力分数并归一化。
-            用注意力分数加权值张量。"""
+        
         if self.fused_attn:
             x = F.scaled_dot_product_attention(
                 q,
@@ -205,16 +200,16 @@ class Attention(nn.Module):
             )
         else:
             q = q * self.scale
-            attn = q @ k.transpose(-2, -1)
-            attn = attn.softmax(dim=-1)
-            attn = self.attn_drop(attn)
-            x = attn @ v
+            attn = q @ k.transpose(-2, -1)# 通过矩阵乘法计算查询和键之间的相似度, q, k = [B, num_heads, N, head_dim], k.transpose(-2,-1)=[B, num_heads, head_dim, N]
+            attn = attn.softmax(dim=-1)#[B, num_heads, N, N] 对最后一个维度 N （序列长度）进行归一化
+            attn = self.attn_drop(attn)#在训练期间随机将一部分注意力权重置为 0，以增强模型的泛化能力
+            x = attn @ v# attn= [B, num_heads, N, N], v=[B, num_heads, N, head_dim], x = [B, num_heads, N, head_dim]
         """恢复原始张量形状。
         对输出进行线性投影和随机丢弃，最后返回"""
-        x = x.transpose(1, 2).reshape(B, N, C)
+        x = x.transpose(1, 2).reshape(B, N, C)#[B, num_heads, N, head_dim] ->[B, N, num_heads, head_dim]->[B, N, C]
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x
+        return x# B:batchsize N:序列长度
 
 #定义一个继承自nn.Module的自定义类，用于对输入进行可学习的缩放操作。
 class LayerScale(nn.Module):
@@ -231,7 +226,7 @@ class LayerScale(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         #如果inplace为True，使用mul_方法就地缩放输入,否则返回缩放后的新张量。
-        return x.mul_(self.gamma) if self.inplace else x * self.gamma
+        return x.mul_(self.gamma) if self.inplace else x * self.gamma#如果真，就地操作x.mul_(self.gamma)，对输入张量 x 的最后一维（特征维度）逐元素乘以 gamma，否则x * self.gamma
 
 #定义一个Transformer块类，包含注意力机制和MLP
 class Block(nn.Module):
@@ -262,7 +257,7 @@ class Block(nn.Module):
             proj_drop=proj_drop,
             norm_layer=norm_layer,
         )
-        #如果提供了init_values，添加LayerScale层；否则使用Identity（不做任何操作）
+        #缩放层
         self.ls1 = (
             LayerScale(dim, init_values=init_values) if init_values else nn.Identity()
         )
@@ -270,6 +265,7 @@ class Block(nn.Module):
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         #第二层归一化操作
         self.norm2 = norm_layer(dim)
+        #MLP层，由两层线性层和激活函数组成
         self.mlp = mlp_layer(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
@@ -281,10 +277,7 @@ class Block(nn.Module):
         )
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-    """将输入通过norm1归一化，再经过注意力层。
-通过ls1缩放、drop_path1随机丢弃后加回原输入。
-对新的张量进行norm2归一化、MLP操作。
-再经过ls2缩放、drop_path2随机丢弃后加回。"""
+    #前向传播过程通过两次残差连接（ResNet 风格）来实现
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
         x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
@@ -321,6 +314,7 @@ class VisionTransformer(nn.Module):
         fc_norm: Optional[bool] = None,
         dynamic_img_size: bool = False,
         dynamic_img_pad: bool = False,
+        #正则化
         drop_rate: float = 0.0,
         pos_drop_rate: float = 0.0,
         patch_drop_rate: float = 0.0,
@@ -328,6 +322,7 @@ class VisionTransformer(nn.Module):
         attn_drop_rate: float = 0.0,
         drop_path_rate: float = 0.0,
         weight_init: Literal["skip", "jax", "jax_nlhb", "moco", ""] = "",
+        #组件选择
         embed_layer: Callable = PatchEmbed,
         norm_layer: Optional[LayerType] = None,
         act_layer: Optional[LayerType] = None,
@@ -371,27 +366,36 @@ class VisionTransformer(nn.Module):
         norm_layer = partial(nn.LayerNorm, eps=1e-6)
         act_layer = nn.GELU
 
+        #分类数和全局池化
         self.num_classes = num_classes
         self.global_pool = global_pool
+        #嵌入维度
         self.num_features = self.embed_dim = (
             embed_dim  # num_features for consistency with other models
         )
+        #前缀token数量
         self.num_prefix_tokens = 1 if class_token else 0
         self.num_prefix_tokens += reg_tokens
+        #注册token数量
         self.num_reg_tokens = reg_tokens
+        #分类token标志
         self.has_class_token = class_token
+        #嵌入行为控制
         self.no_embed_class = (
             no_embed_class  # don't embed prefix positions (includes reg)
         )
+        #动态图像大小支持
         self.dynamic_img_size = dynamic_img_size
+        #梯度检查点
         self.grad_checkpointing = False
+        #忽略分类头
         self.ignore_head = ignore_head
 
         embed_args = {}
-        if dynamic_img_size:
+        if dynamic_img_size:#动态图像大小
             # flatten deferred until after pos embed
             embed_args.update(dict(strict_img_size=False, output_fmt="NHWC"))
-        #将输入图像划分为patch，并映射到嵌入空间。
+        #将输入图像划分为小块patch，并映射到嵌入空间。
         self.patch_embed = embed_layer(
             img_size=img_size,
             patch_size=patch_size,
@@ -401,20 +405,24 @@ class VisionTransformer(nn.Module):
             dynamic_img_pad=dynamic_img_pad,
             **embed_args,
         )
+        #小块数量
         num_patches = self.patch_embed.num_patches
         #分类token，用于最后的分类任务
         self.cls_token = (
             nn.Parameter(torch.zeros(1, 1, embed_dim)) if class_token else None
         )
+        #注册token
         self.reg_token = (
             nn.Parameter(torch.zeros(1, reg_tokens, embed_dim)) if reg_tokens else None
         )
+        #嵌入长度
         embed_len = (
             num_patches if no_embed_class else num_patches + self.num_prefix_tokens
         )
         #位置嵌入，用于保持输入序列的位置信息
         self.pos_embed = nn.Parameter(torch.randn(1, embed_len, embed_dim) * 0.02)
         self.pos_drop = nn.Dropout(p=pos_drop_rate)
+        #随机丢弃patch
         if patch_drop_rate > 0:
             self.patch_drop = PatchDropout(
                 patch_drop_rate,
@@ -422,8 +430,10 @@ class VisionTransformer(nn.Module):
             )
         else:
             self.patch_drop = nn.Identity()
+        #预归一化
         self.norm_pre = norm_layer(embed_dim) if pre_norm else nn.Identity()
 
+        #随机深度丢弃率
         dpr = [
             x.item() for x in torch.linspace(0, drop_path_rate, depth)
         ]  # stochastic depth decay rule
@@ -451,8 +461,6 @@ class VisionTransformer(nn.Module):
         self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
 
         # Classifier Head
-        """条件检查是否采用 Attention Pooling（注意力池化）：
-如果 global_pool 参数为 "map"，则启用 AttentionPoolLatent 模块"""
         if global_pool == "map":
             AttentionPoolLatent.init_weights = init_weights
             self.attn_pool = AttentionPoolLatent(
@@ -465,23 +473,16 @@ class VisionTransformer(nn.Module):
             self.attn_pool = None
         #设置分类前的归一化层：如果 use_fc_norm 为 True，则在分类头前应用归一化层，否则直接使用 nn.Identity（不进行操作）
         self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
-        """分类头的 Dropout 层：创建一个 Dropout 层，用于减少过拟合。
-            定义分类层：如果 num_classes 大于 0，则创建一个全连接层 (nn.Linear) 输出类别数；
-            否则使用 nn.Identity，不进行分类。"""
         self.head_drop = nn.Dropout(drop_rate)
         self.head = (
             nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         )
 
-        #权重初始化 如果 weight_init 不为 "skip"，调用 self.init_weights 方法初始化模型权重。
+        #权重初始化 
         if weight_init != "skip":
             self.init_weights(weight_init)
 
     #初始化权重方法
-    """检查权重初始化模式：确保权重初始化模式为允许的选项之一。
-        初始化位置嵌入：使用截断正态分布初始化 pos_embed，标准差为 0.02。
-        初始化分类令牌：如果存在 cls_token，用正态分布（标准差为 1e-6）进行初始化。
-        应用自定义权重初始化方法：对模块的权重执行 init_weights_vit_timm 初始化。"""
     def init_weights(self, mode: Literal["jax", "jax_nlhb", "moco", ""] = "") -> None:
         assert mode in ("jax", "jax_nlhb", "moco", "")
         # head_bias = -math.log(self.num_classes) if "nlhb" in mode else 0.0
@@ -532,12 +533,9 @@ class VisionTransformer(nn.Module):
             nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         )
 
-    #位置嵌入逻辑
-    """动态调整位置嵌入：如果启用动态图片大小，根据输入调整位置嵌入。
-        拼接令牌：将分类令牌和回归令牌与输入特征拼接。
-        应用 Dropout：对拼接后的结果应用 Dropout。"""
+    #位置嵌入处理
     def _pos_embed(self, x: torch.Tensor) -> torch.Tensor:
-        if self.dynamic_img_size:
+        if self.dynamic_img_size:#动态调整位置嵌入
             B, H, W, C = x.shape
             pos_embed = resample_abs_pos_embed(
                 self.pos_embed,
@@ -569,12 +567,14 @@ class VisionTransformer(nn.Module):
 
         return self.pos_drop(x)
 
+    #中间层特征提取
     def _intermediate_layers(
         self,
         x: torch.Tensor,
         n: Union[int, Sequence] = 1,
     ) -> List[torch.Tensor]:
         outputs, num_blocks = [], len(self.blocks)
+        #选择层的范围，如果 n 是整数，则取模型的最后 n 层。如果 n 是一个序列，则按指定的索引选取。
         take_indices = set(
             range(num_blocks - n, num_blocks) if isinstance(n, int) else n
         )
@@ -584,8 +584,9 @@ class VisionTransformer(nn.Module):
         x = self._pos_embed(x)
         x = self.patch_drop(x)
         x = self.norm_pre(x)
-        for i, blk in enumerate(self.blocks):
-            x = blk(x)
+        #逐层处理
+        for i, blk in enumerate(self.blocks):#遍历 self.blocks 中的每个 Transformer 块
+            x = blk(x)#将输入 x 传递给当前的 Transformer 块 blk 进行前向传播。
             if i in take_indices:
                 outputs.append(x)
 
@@ -604,9 +605,10 @@ class VisionTransformer(nn.Module):
         Inspired by DINO / DINOv2 interface
         """
         # take last n blocks if n is an int, if in is a sequence, select by matching indices
-        outputs = self._intermediate_layers(x, n)
-        if norm:
+        outputs = self._intermediate_layers(x, n)#调用中间层提取
+        if norm:#如果 norm=True，则对每个中间层的输出应用归一化
             outputs = [self.norm(out) for out in outputs]
+        #将输出张量out分为两部分？
         prefix_tokens = [out[:, 0 : self.num_prefix_tokens] for out in outputs]
         outputs = [out[:, self.num_prefix_tokens :] for out in outputs]
 
@@ -617,20 +619,19 @@ class VisionTransformer(nn.Module):
                 .permute(0, 3, 1, 2)
                 .contiguous()
                 for out in outputs
-            ]
+            ]#[B, H, W, C] -->[B, C, H, W]转化
 
         if return_prefix_tokens:
             return tuple(zip(outputs, prefix_tokens))
         return tuple(outputs)
 
     #特征提取和前向传播
-    """提取特征：从输入图片中提取特征，经过 Patch Embedding、位置嵌入、归一化和所有 Transformer 块。
-        前向传播分类：最终将特征送入分类器头得到输出"""
-    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.patch_embed(x)
-        x = self._pos_embed(x)
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:#用于从输入 x 中提取特征，经过 Patch Embedding、位置嵌入、归一化以及所有 Transformer 块。
+        x = self.patch_embed(x)#将图像切分为多个 patch，并将每个 patch 转换成嵌入向量
+        x = self._pos_embed(x)#通过位置嵌入来为每个 patch 添加位置信息
         x = self.patch_drop(x)
         x = self.norm_pre(x)
+        #如果启用了梯度检查点（grad_checkpointing），则通过检查点技术节省内存并且当前代码没有被转换为 TorchScript。否则，直接将 x 送入一系列 Transformer 块
         if self.grad_checkpointing and not torch.jit.is_scripting():
             x = checkpoint_seq(self.blocks, x)
         else:
@@ -638,6 +639,7 @@ class VisionTransformer(nn.Module):
         x = self.norm(x)
         return x
 
+    #处理分类头
     def forward_head(self, x: torch.Tensor, pre_logits: bool = False) -> torch.Tensor:
         if self.attn_pool is not None:#如果 Attention Pooling (self.attn_pool) 被启用，则对输入 x 应用注意力池化
             x = self.attn_pool(x)
@@ -648,16 +650,12 @@ class VisionTransformer(nn.Module):
             x = x[:, 0]  # class token
 
         #应用归一化、Dropout 和分类头：
-        """对特征 x 应用归一化（self.fc_norm）。通过 Dropout 减少过拟合。
-        如果 pre_logits=True，直接返回归一化后的特征；否则通过分类头（self.head）输出类别。"""
+       
         x = self.fc_norm(x)
         x = self.head_drop(x)
         return x if pre_logits else self.head(x)
 
-    """特征提取： 调用 self.forward_features 方法，从输入中提取特征。
-分类： 如果未忽略分类头（ignore_head=False），通过分类头得到最终输出。
-返回结果： 返回分类或提取的特征。
-"""
+    #最终的前向传播算法
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.forward_features(x)
         if not self.ignore_head:
