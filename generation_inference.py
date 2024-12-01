@@ -68,42 +68,44 @@ def generate(
 
     tokens = torch.zeros((parallel_size*2, len(input_ids)), dtype=torch.int).cuda()
     for i in range(parallel_size*2):
-        tokens[i, :] = input_ids
+        tokens[i, :] = input_ids#将完整的 input_ids（即文本 prompt 的 token 序列）复制到第 i 行
         if i % 2 != 0:
-            tokens[i, 1:-1] = vl_chat_processor.pad_id
+            tokens[i, 1:-1] = vl_chat_processor.pad_id#中间部分（索引 1:-1）用特殊的填充值 pad_id 替换
 
     inputs_embeds = mmgpt.language_model.get_input_embeddings()(tokens)
 
     generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
 
-    for i in range(image_token_num_per_image):
+    for i in range(image_token_num_per_image):#每次生成一个图像的token,自回归
         outputs = mmgpt.language_model.model(inputs_embeds=inputs_embeds, use_cache=True, past_key_values=outputs.past_key_values if i != 0 else None)
-        hidden_states = outputs.last_hidden_state
+        hidden_states = outputs.last_hidden_state# 通常是[batch_size, seq_len, hidden_dim]
         
-        logits = mmgpt.gen_head(hidden_states[:, -1, :])
-        logit_cond = logits[0::2, :]
-        logit_uncond = logits[1::2, :]
+        logits = mmgpt.gen_head(hidden_states[:, -1, :])#只提取最后一个 token 的隐藏状态，将隐藏状态映射到生成 token 的词汇表概率分布
+        logit_cond = logits[0::2, :]#从 logits 张量中提取 偶数行（从第0行开始，步长为2），即条件生成的 logits 值，[batch_size, vocab_size]
+        logit_uncond = logits[1::2, :]#从第一行开始，步长为2
         
+        #Classifier-Free Guidance (CFG) 通过 CFG 方法增强文本描述对生成的影响
         logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
-        probs = torch.softmax(logits / temperature, dim=-1)
+        probs = torch.softmax(logits / temperature, dim=-1)#将 logits 转换为概率分布，控制生成时的随机性
 
-        next_token = torch.multinomial(probs, num_samples=1)
-        generated_tokens[:, i] = next_token.squeeze(dim=-1)
+        #采样下一个token
+        next_token = torch.multinomial(probs, num_samples=1)#根据概率分布从词汇表中采样一个 token 作为输出
+        generated_tokens[:, i] = next_token.squeeze(dim=-1)#假设 next_token 的形状为 [parallel_size, 1]，执行 squeeze(dim=-1) 后变为 [parallel_size]
 
-        next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
-        img_embeds = mmgpt.prepare_gen_img_embeds(next_token)
-        inputs_embeds = img_embeds.unsqueeze(dim=1)
+        next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)#将 next_token 复制一份并沿着 dim=1 方向拼接，形状变为 [parallel_size, 2]，再将张量展平为一维数组。
+        img_embeds = mmgpt.prepare_gen_img_embeds(next_token)#将 token 转换为图像嵌入
+        inputs_embeds = img_embeds.unsqueeze(dim=1)#将图像嵌入用作下一时间步的输入，为 next_token 增加一个维度，使形状变为 [parallel_size, 1]
 
 
-    dec = mmgpt.gen_vision_model.decode_code(generated_tokens.to(dtype=torch.int), shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size])
-    dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)
+    dec = mmgpt.gen_vision_model.decode_code(generated_tokens.to(dtype=torch.int), shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size])#dec 是解码后的图像数据，形状为 [parallel_size, 8, 24, 24]。它表示每个图像的像素值，通常是浮动的连续值，表示图像的各个通道（例如 RGB）的强度
+    dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)#转置后的形状为 [parallel_size, 24, 24, 8]
 
-    dec = np.clip((dec + 1) / 2 * 255, 0, 255)
+    dec = np.clip((dec + 1) / 2 * 255, 0, 255)#适应常见的图像像素表示
 
     visual_img = np.zeros((parallel_size, img_size, img_size, 3), dtype=np.uint8)
-    visual_img[:, :, :] = dec
+    visual_img[:, :, :] = dec#将解码后的图像数据 dec 赋值给 visual_img
 
-    os.makedirs('generated_samples', exist_ok=True)
+    os.makedirs('generated_samples', exist_ok=True)#保存
     for i in range(parallel_size):
         save_path = os.path.join('generated_samples', "img_{}.jpg".format(i))
         PIL.Image.fromarray(visual_img[i]).save(save_path)
