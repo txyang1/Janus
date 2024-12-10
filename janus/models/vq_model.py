@@ -180,7 +180,7 @@ class Decoder(nn.Module):
                     attn_block.append(AttnBlock(block_in, norm_type))
             conv_block.res = res_block
             conv_block.attn = attn_block
-            # downsample
+            # upsample
             if i_level != 0:
                 conv_block.upsample = Upsample(block_in, resamp_with_conv)
             self.conv_blocks.append(conv_block)
