@@ -16,6 +16,7 @@
 # COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#第二步
 #这段代码定义了一个 VLMImageProcessor 类，用于深度学习视觉模型的图像预处理。它支持图像的大小调整、归一化、标准化等操作，并且专为多模态学习任务优化。
 from typing import List, Tuple, Union
 
@@ -38,7 +39,9 @@ IMAGENET_MEAN = (0.48145466, 0.4578275, 0.40821073)
 IMAGENET_STD = (0.26862954, 0.26130258, 0.27577711)
 IMAGENET_INCEPTION_MEAN = (0.5, 0.5, 0.5)
 IMAGENET_INCEPTION_STD = (0.5, 0.5, 0.5)
-
+"""图像resize：通过如下计算方法，将图像等比例的进行缩放，
+令图像的高或宽（较大的那个）变为self.image_size大小，防止图像畸形，
+然后调用expand2square方法用背景色将图像填充成self.image_size*self.image_size（1024*1024）大小。"""
 
 def expand2square(pil_img, background_color):#定义一个函数，将非正方形图像扩展为正方形。
     width, height = pil_img.size
@@ -143,6 +146,8 @@ class VLMImageProcessor(BaseImageProcessor):#定义自定义图像处理器类�
             x (np.ndarray): [3, self.image_size, self.image_size]
         """
 
+        """像素值归一化：原始像素值为0-255，转换为0-1。
+像素值标准化：均值为[0.48145466,0.4578275,0.40821073],方差为[0.26862954,0.26130258,0.27577711]"""
         #获取图像尺寸，计算最大边长。
         width, height = pil_img.size
         max_size = max(width, height)
