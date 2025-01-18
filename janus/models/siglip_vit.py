@@ -284,6 +284,11 @@ class Block(nn.Module):
         return x
 
 #定义一个视觉Transformer模型。
+"""对于低分辨率模型siglip，将输入为384*384大小的图像分为576（24*24）个大小为16*16的图像patch，然后使用1024个卷积核大小为16*16，
+步长也为16的二维卷积，将图像转为（576，1024）大小，具体实现上，DeepSeek使用的是timm库的PatchEmbed类
+位置编码是可学习的位置编码，形状也为（576，1024）
+然后就是过12层VIT的block了，最终的输出形状也为（576，1024）。因为在推理时我们只需要用VIT拿到图像的表征，
+即VIT最后一层block的输出，因此DeepSeek-VL的代码中并没有体现siglip模型的sigmoid loss。"""
 class VisionTransformer(nn.Module):
     """Vision Transformer
 
