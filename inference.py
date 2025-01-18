@@ -43,7 +43,7 @@ conversation = [
 ]
 
 # load images and prepare for inputs
-pil_images = load_pil_images(conversation)
+pil_images = load_pil_images(conversation)#加载图像，支持base64格式和正常的图像格式，调用比较常用的PIL.Image.open接口。
 prepare_inputs = vl_chat_processor(
     conversations=conversation, images=pil_images, force_batchify=True
 ).to(vl_gpt.device)
