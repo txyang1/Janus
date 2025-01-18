@@ -221,7 +221,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):#该类整合了语言
         #加载语言模型
         language_config = config.language_config
         self.language_model = LlamaForCausalLM(language_config)
-    #输入准备，准备输入嵌入，定义方法，将文本和图像特征组合成统一的嵌入。
+    #输入准备，准备输入嵌入，定义方法，将文本和图像特征组合成统一的嵌入。 DeepSeek-VL设计了prepare_inputs_embeds去统一提取文本和图像的embedding
     def prepare_inputs_embeds(
         self,
         input_ids: torch.LongTensor,
