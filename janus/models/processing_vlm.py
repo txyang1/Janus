@@ -308,6 +308,8 @@ class VLChatProcessor(ProcessorMixin): #该类继承自 ProcessorMixin。这个�
         input_ids = torch.LongTensor(input_ids)#将这个标记 ID 列表转换成 PyTorch 的长整型张量（LongTensor），以便后续处理。
 
         # add image tokens to the input_ids
+        """ 通过如下代码找到输入的token id中图像的位置，
+        然后调用add_image_token函数将每一个图像占位符复制成576个，此时可以得到最终的输入到LLM中的token id list。"""
         image_token_mask: torch.BoolTensor = input_ids == self.image_id#生成一个布尔张量，标记 input_ids 中等于图像标记 ID 的位置。
         image_indices = image_token_mask.nonzero()#返回一个包含所有图像标记位置的张量索引
         input_ids, num_image_tokens = self.add_image_token(
