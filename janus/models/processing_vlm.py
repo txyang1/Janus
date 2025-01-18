@@ -261,6 +261,9 @@ class VLChatProcessor(ProcessorMixin): #该类继承自 ProcessorMixin。这个�
         return input_ids, num_image_tokens
 
     #数据处理：将对话内容、图像和相应的标记进行编码，并创建一个包含必要信息的输出对象
+    """process_one函数是数据预处理的主逻辑，
+    首席按会调用apply_sft_template_for_multi_turn_prompts接口将上述dict格式的输入转换为一个字符串，
+    如下所示，包含system prompt，role等。然后直接使用tokenizer把字符串转换未token id。"""
     def process_one(
         self,
         prompt: str = None,
