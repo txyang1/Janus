@@ -365,6 +365,7 @@ class VLChatProcessor(ProcessorMixin): #该类继承自 ProcessorMixin。这个�
 
         return prepare
 
+    """基本原理是将一个batch里短的序列pad到batch里最长序列的长度（左边补pad id）。通过构造attention mask，防止pad id对最终输出造成影响"""
     #批量处理 将多个处理后的数据样本批量化，以便能够在多模态推理（同时处理文本和图像）时一起传递给模型进行处理
     def batchify(
         self, prepare_list: List[VLChatProcessorOutput]
